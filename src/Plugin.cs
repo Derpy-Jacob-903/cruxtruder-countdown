@@ -3,83 +3,150 @@ using BepInEx;
 using UnityEngine;
 using SlugBase.Features;
 using static SlugBase.Features.FeatureTypes;
+using System.Threading;
+using On;
+using IL;
 
-namespace SlugTemplate
+namespace cruxtruderCountdown
 {
-    [BepInPlugin(MOD_ID, "Slugcat Template", "0.1.0")]
+    [BepInPlugin(MOD_ID, "cruxtruder-countdown", "0.1.0")]
     class Plugin : BaseUnityPlugin
     {
-        private const string MOD_ID = "author.slugtemplate";
-
-        public static readonly PlayerFeature<float> SuperJump = PlayerFloat("slugtemplate/super_jump");
-        public static readonly PlayerFeature<bool> ExplodeOnDeath = PlayerBool("slugtemplate/explode_on_death");
-        public static readonly GameFeature<float> MeanLizards = GameFloat("slugtemplate/mean_lizards");
-
+        private const string MOD_ID = "derpyjacob903.cruxtrudercountdown";
+        private const string RainRequestStopSongError = "RainRequestStopSong() called! /n We ain't doing that! >:3";
+        private bool countdown = false;
+        private bool forceCountdown = false;
+        private bool eepy = false;
 
         // Add hooks
         public void OnEnable()
         {
             On.RainWorld.OnModsInit += Extras.WrapInit(LoadResources);
-
+            countdown = false;
             // Put your custom hooks here!
-            On.Player.Jump += Player_Jump;
-            On.Player.Die += Player_Die;
-            On.Lizard.ctor += Lizard_ctor;
+            //On.RainWorldGame.InClosingShelter += RainWorldGame_InClosingShelter;
+            On.RainWorldGame.GoToDeathScreen += RainWorldGame_GoToDeathScreen;
+            On.RainCycle.Update += RainCycle_Update;
+            On.Music.MusicPlayer.RainRequestStopSong += MusicPlayer_RainRequestStopSong;
+            On.Player.SleepUpdate += Player_SleepUpdate;
+            On.Menu.ModdingMenu.Init += ModdingMenu_Init;
+            On.Player.Update += Player_Update;
         }
-        
+
+        private void MusicPlayer_RainRequestStopSong(On.Music.MusicPlayer.orig_RainRequestStopSong orig, Music.MusicPlayer self)
+        {
+            // using this to stop non-countdown music >:3
+            if (self.song.name != "TGP_03 - cruxtruder countdown") { orig(self); }
+            else {
+                //do nothing :3
+                Logger.LogMessage(RainRequestStopSongError); 
+            } 
+        }
+
+        private void Player_Update(On.Player.orig_Update orig, Player self, bool eu)
+        {
+            if (self.stillInStartShelter && countdown && !forceCountdown)
+            {
+                countdown = false;
+            }
+            //else
+                //if (forceCountdown) { countdown = true; }
+            
+            orig(self, eu);
+        }
+
+        private void ModdingMenu_Init(On.Menu.ModdingMenu.orig_Init orig, Menu.ModdingMenu self)
+        {
+            orig(self);
+        }
+
+        private void RainWorldGame_GoToDeathScreen(On.RainWorldGame.orig_GoToDeathScreen orig, RainWorldGame self)
+        {
+            orig(self);
+            countdown = false;
+            StopMusicEvent stopMusicEvent = new StopMusicEvent();
+            stopMusicEvent.type = StopMusicEvent.Type.SpecificSong;
+            stopMusicEvent.songName = "TGP_03 - cruxtruder countdown";
+            stopMusicEvent.prio = 10f;
+            self.world.game.manager.musicPlayer.GameRequestsSongStop(stopMusicEvent);
+        }
+
         // Load any resources, such as sprites or sounds
         private void LoadResources(RainWorld rainWorld)
         {
+
         }
 
-        // Implement MeanLizards
-        private void Lizard_ctor(On.Lizard.orig_ctor orig, Lizard self, AbstractCreature abstractCreature, World world)
-        {
-            orig(self, abstractCreature, world);
-
-            if(MeanLizards.TryGet(world.game, out float meanness))
-            {
-                self.spawnDataEvil = Mathf.Min(self.spawnDataEvil, meanness);
-            }
-        }
-
-
-        // Implement SuperJump
-        private void Player_Jump(On.Player.orig_Jump orig, Player self)
+        private void Player_SleepUpdate(On.Player.orig_SleepUpdate orig, Player self)
         {
             orig(self);
-
-            if (SuperJump.TryGet(self, out var power))
-            {
-                self.jumpBoost *= 1f + power;
-            }
+            //if(self.Sleeping) { eepy = true; }
+            //else { eepy = false; }
         }
 
-        // Implement ExlodeOnDeath
-        private void Player_Die(On.Player.orig_Die orig, Player self)
+    //private void MusicPlayer_NewCycleEvent(On.Music.MusicPlayer.orig_NewCycleEvent orig, Music.MusicPlayer self)
+
+        //private bool RainWorldGame_InClosingShelter(On.RainWorldGame.orig_InClosingShelter orig, RainWorldGame self)
+        //{
+            //eepy = orig(self);
+            //orig(self);
+        //}
+
+        private void RainCycle_Update(On.RainCycle.orig_Update orig, RainCycle self)
         {
-            bool wasDead = self.dead;
-
             orig(self);
-
-            if(!wasDead && self.dead
-                && ExplodeOnDeath.TryGet(self, out bool explode)
-                && explode)
+            //if (self.TimeUntilRain > (int)(167f * 40f) && countdown == true) 
+            //{
+            //countdown = false;
+            //eepy = false;
+            //}
+            if (self.TimeUntilRain <= (int)(120f * 40f) && !countdown)
             {
-                // Adapted from ScavengerBomb.Explode
-                var room = self.room;
-                var pos = self.mainBodyChunk.pos;
-                var color = self.ShortCutColor();
-                room.AddObject(new Explosion(room, self, pos, 7, 250f, 6.2f, 2f, 280f, 0.25f, self, 0.7f, 160f, 1f));
-                room.AddObject(new Explosion.ExplosionLight(pos, 280f, 1f, 7, color));
-                room.AddObject(new Explosion.ExplosionLight(pos, 230f, 1f, 3, new Color(1f, 1f, 1f)));
-                room.AddObject(new ExplosionSpikes(room, pos, 14, 30f, 9f, 7f, 170f, color));
-                room.AddObject(new ShockWave(pos, 330f, 0.045f, 5, false));
-
-                room.ScreenMovement(pos, default, 1.3f);
-                room.PlaySound(SoundID.Bomb_Explode, pos);
-                room.InGameNoise(new Noise.InGameNoise(pos, 9000f, self, 1f));
+                forceCountdown = true;
             }
+            if (self.TimeUntilRain <= (int)(167f * 40f) && !countdown || forceCountdown)
+            {
+                if ((self.world.game.manager.musicPlayer != null && (self.world.game.manager.musicPlayer.song != null || self.world.game.manager.musicPlayer.nextSong != null)) && self.world.game.manager.musicPlayer.song.name != "TGP_03 - cruxtruder countdown")
+                {
+                    self.world.game.manager.musicPlayer.RainRequestStopSong();
+                }
+                //StopMusicEvent stopMusicEvent = new StopMusicEvent();
+                //stopMusicEvent.type = StopMusicEvent.Type.AllButSpecific;
+                //stopMusicEvent.songName = "TGP_03 - cruxtruder countdown";
+                //stopMusicEvent.prio = 999f;
+                //stopMusicEvent.fadeOutTime = 1f;
+                //self.world.game.manager.musicPlayer.GameRequestsSongStop(stopMusicEvent);
+
+                //eepy = true;
+
+                //if (eepy == true) {
+                //adampted from the part that plays 
+                MusicEvent musicEvent = new MusicEvent();
+                //musicEvent.cyclesRest = -1;
+                musicEvent.prio = 9f;
+                musicEvent.stopAtDeath = false;
+                musicEvent.stopAtGate = false;
+                musicEvent.volume = 0.5f;
+                musicEvent.songName = "TGP_03 - cruxtruder countdown";
+                //musicEvent.fadeOutAtThreat = false;
+                self.world.game.manager.musicPlayer.GameRequestsSong(musicEvent);
+                countdown = true;
+                //}
+            }
+            //if (eepy == true && countdown == true) // In a Closing Shelter
+            //{
+                //StopMusicEvent stopMusicEvent = new StopMusicEvent();
+                //stopMusicEvent.type = StopMusicEvent.Type.SpecificSong;
+                //stopMusicEvent.songName = "TGP_03 - cruxtruder countdown";
+                //stopMusicEvent.prio = 3f;
+                //self.world.game.manager.musicPlayer.GameRequestsSongStop(stopMusicEvent);
+
+                //eepy = false;
+            //}
+            //eepy = false;
+            //else
+
         }
+
     }
 }
